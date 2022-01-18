@@ -13,10 +13,11 @@ class AirSimCarEnv(gym.Env):
     def __init__(self, ip_address, road_arr):
         
         super().__init__()
-
-        self.shape = (3,2)
+        self.N_DOTS = 4
+        self.SPEED = 7
+        self.shape = (self.N_DOTS,2)
         self.start_ts = 0
-        self.observation_space = spaces.Box(-200, 200, shape=self.shape, dtype=np.uint8)
+        self.observation_space = spaces.Box(-200, 200, shape=self.shape, dtype=np.float32)
         self.viewer = None
 
         self.state = {
@@ -38,11 +39,9 @@ class AirSimCarEnv(gym.Env):
         self.car_controls = airsim.CarControls()
         self.car_state = None
         
-        self.N_DOTS = 3
-        self.SPEED = 9
         self.road_arr = road_arr
         
-        self.pid = PID(8,0.01,0.1,setpoint=9)
+        self.pid = PID(8,0.01,0.1,setpoint=self.SPEED)
         self.pid.output_limits = (0,1)
         
     def _setup_car(self):
@@ -81,20 +80,8 @@ class AirSimCarEnv(gym.Env):
         self.state['pose'] = self.car_state.kinematics_estimated
         
         return self._get_pose()
-
-    def _compute_reward(self):
-        #MAX_SPEED = 300
-        #MIN_SPEED = 10
-        #THRESH_DIST = 5
-        BETA = 0.5
-        
-        #pts = pts_alt
-        position = self.car.getCarState().kinematics_estimated.position
-        x_pos = position.x_val
-        y_pos = position.y_val
-        car_pt = np.array([x_pos,y_pos])
-        
-        
+    
+    def _distance_to_road(self,car_pt):
         dist = 10000000
         
         pts = self._get_route(self.road_arr,car_pt,2)
@@ -109,7 +96,22 @@ class AirSimCarEnv(gym.Env):
                 )
                 / np.linalg.norm(pts[0] - pts[1])
         )
+        return dist
+    
+    def _get_car_position(self,):
+        position = self.car.getCarState().kinematics_estimated.position
+        x_pos = position.x_val
+        y_pos = position.y_val
+        car_pt = np.array([x_pos,y_pos])
+        return car_pt
+    
+    def _compute_reward(self):
         
+        BETA = 0.5
+        
+        car_pt = self._get_car_position()
+        dist = self._distance_to_road(car_pt)
+ 
         reward = math.exp(-BETA * dist) - 0.5
         print('distance:',dist)
         print('reward:',reward)
@@ -133,16 +135,30 @@ class AirSimCarEnv(gym.Env):
         ------- 
         
         '''
-        position = self.car.getCarState().kinematics_estimated.position
-        x_pos = position.x_val
-        y_pos = position.y_val
-        pos = np.array([x_pos,y_pos])
+        pos = self._get_car_position()
         route = self._get_route(self.road_arr,pos)
         new_route = np.array([x - pos for x in route])
+        print(np.shape(new_route))
+        print(new_route)
         return new_route
     
-    def _get_route(self,road_arr,car_coord,n=3):
-        
+    def _get_route(self,road_arr,car_coord,n=4):
+        '''
+
+        Parameters
+        ----------
+        road_arr : Road represented by array [mx2]
+        car_coord : [x,y]-coordinates of our veichle
+        n : TYPE, optional
+            How many dots do we want
+            DESCRIPTION. The default is 4.
+        Returns
+        -------
+        np.array() with shape (n,2)
+            Returns n closest to the veichle road spoints 
+
+        '''
+        n = self.N_DOTS
         car_coord = np.array(car_coord)
         road_arr = np.array(road_arr)
         sorted_arr = sorted(road_arr, key=lambda x: np.linalg.norm(x - car_coord))
@@ -155,8 +171,8 @@ class AirSimCarEnv(gym.Env):
         self._do_action(action)
         obs = self._get_obs()
         reward, done = self._compute_reward()
-
-        return obs, reward, done, self.state
+        print(done, bool(done))
+        return obs, reward, bool(done), self.state
 
     def reset(self):
         self._setup_car()
