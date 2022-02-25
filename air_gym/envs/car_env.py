@@ -11,15 +11,20 @@ from simple_pid import PID
 import matplotlib.pyplot as plt
 
 class AirSimCarEnv(gym.Env):
-    def __init__(self, ip_address, road_arr):
+    def __init__(self, model_name, test=False,contus=True):
         
         super().__init__()
-        self.N_DOTS = 4
-        self.SPEED = 7
-        self.shape = (self.N_DOTS,2)
+        self.contus = contus
+        self.test = test
+        
+        self.N_DOTS = 6
+        self.SPEED = 6
+        self.shape = (self.N_DOTS*2,)
         self.start_ts = 0
         self.observation_space = spaces.Box(-200, 200, shape=self.shape, dtype=np.float32)
         self.viewer = None
+
+        self.model_name = model_name
 
         self.state = {
             "position": np.zeros(3),
@@ -29,27 +34,31 @@ class AirSimCarEnv(gym.Env):
             "collision": False,
         }
 
-        self.car = airsim.CarClient(ip=ip_address)
+        self.car = airsim.CarClient(ip='127.0.0.1')
+        self.road_arr = self._randomize_road()
         self.car.reset()
-        self.action_space = spaces.Box(low=-0.5, high=0.5 ,shape=(1,1),dtype=np.float32)
+        if self.contus:
+            self.action_space = spaces.Box(low=-1, high=1,shape=(1,),dtype='float32')
+        else:
+            self.action_space = spaces.Discrete(3)
         
-        self.image_request = airsim.ImageRequest(
-            "0", airsim.ImageType.DepthPerspective, True, False
-        )
+        #self.image_request = airsim.ImageRequest(
+        #    "0", airsim.ImageType.DepthPerspective, True, False
+        #)
 
         self.car_controls = airsim.CarControls()
         self.car_state = None
         
-        self.road_arr = road_arr
-        
         self.pid = PID(8,0.01,0.1,setpoint=self.SPEED)
         self.pid.output_limits = (0,1)
         
+        self.reward = 0
+        
         plt.ion()
-        x = np.linspace(0, 10, 100)
-        y = np.cos(x)
+
         self.figure, self.ax = plt.subplots(figsize=(8,6))
-        self.line1, = self.ax.plot([-20,20],[-20,20],'.-')
+        self.line1, = self.ax.plot([-20,20],[-20,20],'o-')
+        self.ax.plot(0,0,'.',)
         plt.title("Dynamic Plot of road",fontsize=25)
         
         plt.xlabel("X",fontsize=18)
@@ -65,35 +74,33 @@ class AirSimCarEnv(gym.Env):
         self.car.reset()
         
     def _do_action(self, action):
-        try:
-            action = action[0]
-            try:
-                action = action[0]
-            except:
-                pass
-        except:
-            pass
-        action = float(action)
-        self.car_controls.steering = action
         throttle = self.pid(self.car.getCarState().speed)
         self.car_controls.throttle = throttle
+        
+        if self.contus:
+            action = float(action)/2
+            self.car_controls.steering = action
+        else:
+            if action == 0:
+                self.car_controls.steering = 0
+            elif action == 1:
+                self.car_controls.steering = 0.5
+            elif action == 2:
+                self.car_controls.steering = -0.5
+    
         self.car.setCarControls(self.car_controls)
-        
-        #debug information
-        {
-            print('Steering:',action)
-            
-        }
-        time.sleep(1)
-        
+        time.sleep(0.1)
+    
     def _get_obs(self):
 
         self.car_state = self.car.getCarState()
 
         self.state['prev_pose'] = self.state['pose']
         self.state['pose'] = self.car_state.kinematics_estimated
-        
-        return self._get_pose()
+        obs = np.array(self._get_pose()).flatten()
+        #print(obs)
+        #print(self.observation_space)
+        return obs
     
     def _rotate(self,origin, points, angle):
         """
@@ -105,13 +112,12 @@ class AirSimCarEnv(gym.Env):
         rotated_points = []
         for point in points:
             px, py = point
-            qx = ox + math.cos(angle) * (px - ox) - math.sin(angle) * (py - oy)
-            qy = oy + math.sin(angle) * (px - ox) + math.cos(angle) * (py - oy)
+            qx = math.cos(angle) * (px-ox) - math.sin(angle) * (py-oy)
+            qy = math.sin(angle) * (px-ox) + math.cos(angle) * (py-oy)
             rotated_points.append([qx,qy])
         return np.array(rotated_points)
 
     def _get_yaw(self,):
-        
         """
         Convert a quaternion into euler angles (roll, pitch, yaw)
         roll is rotation around x in radians (counterclockwise)
@@ -157,22 +163,28 @@ class AirSimCarEnv(gym.Env):
     
     def _compute_reward(self):
         
-        BETA = 0.5
+        BETA = -1/3
         
         car_pt = self._get_car_position()
         dist = self._distance_to_road(car_pt)
- 
-        reward = math.exp(-BETA * dist) - 0.5
-        print('distance:',dist)
-        print('reward:',reward)
+        reward = np.exp(dist*BETA) - 1/2
+        #print('distance:',dist)
+        #print('reward:',reward)
         done = 0
-        if reward <= -0.27:
-            done = 1
-        if self.car_controls.brake == 0:
-            if self.car_state.speed <= 0:
+        if self.test == False:
+            if dist >= 3:
                 done = 1
+        else:
+            self._log_dist(dist)
+            if dist >= 6:
+                done = 1
+        #if self.car_controls.brake == 0:
+        #   if self.car_state.speed <= 0:
+        #        done = 1
         if self.state["collision"]:
             done = 1
+        
+        self.reward+= reward
         
         return reward, done
     
@@ -187,11 +199,11 @@ class AirSimCarEnv(gym.Env):
         '''
         pos = self._get_car_position()
         
-        route = self._get_route(self.road_arr,pos)
+        route = self._get_route(self.road_arr,pos,n=self.N_DOTS)
         transfered_route = np.array([x - pos for x in route])
-        rotated_route = self._rotate(pos,transfered_route,math.radians(self._get_yaw()))
+        rotated_route = self._rotate(pos,transfered_route,-math.radians(self._get_yaw()))
         
-        new_route = rotated_route
+        new_route = sorted(rotated_route, key=lambda x: x[0])
 
         x_dots = [r[0] for r in new_route]
         y_dots = [r[1] for r in new_route]
@@ -221,21 +233,58 @@ class AirSimCarEnv(gym.Env):
         n = self.N_DOTS
         car_coord = np.array(car_coord)
         road_arr = np.array(road_arr)
+    
         sorted_arr = sorted(road_arr, key=lambda x: np.linalg.norm(x - car_coord))
         route = []
         for i in range(n):
             route.append(sorted_arr[i])
+        
         return np.array(route)
     
+    def _randomize_road(self,):
+        from random import randrange
+        from pandas import read_csv
+        n = randrange(4) + 1
+        if self.test == False:
+            dots = read_csv(f'roads/road_dots_{n}.csv')
+        else:
+            dots = read_csv('roads/road_dots_test_2.csv')
+        road_arr = list(zip(dots['0'],dots['1']))
+        return road_arr
+    
     def step(self, action):
+        #print(action)
         self._do_action(action)
         obs = self._get_obs()
         reward, done = self._compute_reward()
-        print(done, bool(done))
+        #print(obs, reward, bool(done), self.state)
         return obs, reward, bool(done), self.state
 
     def reset(self):
+        self.road_arr = self._randomize_road()
         self._setup_car()
-        self._do_action([[0]])
+        self._do_action(0)
         print('reset!')
+        print('Total reward:',self.reward)
+        if self.test == False:
+            self._log_rew()
+        self.reward = 0
         return self._get_obs()
+    
+    def _log_route(self,):
+        name = self.model_name
+        f = open(f'route_{name}.txt','a')
+        f.write(f'{self._get_car_position()},')
+        f.close()
+    
+    def _log_rew(self,):
+        name = self.model_name
+        f = open(f"rewards_{name}.txt", "a")
+        f.write(f'{self.reward},')
+        f.close()
+        
+    def _log_dist(self,dist):
+        name = self.model_name
+        f = open(f"dists_{name}.txt", "a")
+        f.write(f'{dist},')
+        f.close()
