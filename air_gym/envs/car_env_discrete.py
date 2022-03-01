@@ -1,4 +1,4 @@
-#import setup_path
+
 import airsim
 import numpy as np
 import math
@@ -6,25 +6,20 @@ import time
 
 import gym
 from gym import spaces
-#from airgym.envs.airsim_env import AirSimEnv
+
 from simple_pid import PID
 import matplotlib.pyplot as plt
 
-class AirSimCarEnv(gym.Env):
-    def __init__(self, model_name, test=False,contus=True):
+class AirSimCarEnvDiscrete(gym.Env):
+    def __init__(self, ip_address, road_arr):
         
         super().__init__()
-        self.contus = contus
-        self.test = test
-        
         self.N_DOTS = 6
         self.SPEED = 6
         self.shape = (self.N_DOTS*2,)
         self.start_ts = 0
         self.observation_space = spaces.Box(-200, 200, shape=self.shape, dtype=np.float32)
         self.viewer = None
-
-        self.model_name = model_name
 
         self.state = {
             "position": np.zeros(3),
@@ -34,20 +29,14 @@ class AirSimCarEnv(gym.Env):
             "collision": False,
         }
 
-        self.car = airsim.CarClient(ip='127.0.0.1')
-        self.road_arr = self._randomize_road()
+        self.car = airsim.CarClient(ip=ip_address)
         self.car.reset()
-        if self.contus:
-            self.action_space = spaces.Box(low=-1, high=1,shape=(1,),dtype='float32')
-        else:
-            self.action_space = spaces.Discrete(3)
-        
-        #self.image_request = airsim.ImageRequest(
-        #    "0", airsim.ImageType.DepthPerspective, True, False
-        #)
+        self.action_space = spaces.Discrete(3)
 
         self.car_controls = airsim.CarControls()
         self.car_state = None
+        
+        self.road_arr = road_arr
         
         self.pid = PID(8,0.01,0.1,setpoint=self.SPEED)
         self.pid.output_limits = (0,1)
@@ -74,21 +63,21 @@ class AirSimCarEnv(gym.Env):
         self.car.reset()
         
     def _do_action(self, action):
+        
         throttle = self.pid(self.car.getCarState().speed)
         self.car_controls.throttle = throttle
-        
-        if self.contus:
-            action = float(action)/2
-            self.car_controls.steering = action
-        else:
-            if action == 0:
-                self.car_controls.steering = 0
-            elif action == 1:
-                self.car_controls.steering = 0.5
-            elif action == 2:
-                self.car_controls.steering = -0.5
-    
+        self.car_controls.brake = 0
+        #self.car_controls.throttle = 1
+
+        if action == 0:
+            self.car_controls.steering = 0
+        elif action == 1:
+            self.car_controls.steering = 0.5
+        elif action == 2:
+            self.car_controls.steering = -0.5
+
         self.car.setCarControls(self.car_controls)
+        
         time.sleep(0.1)
     
     def _get_obs(self):
