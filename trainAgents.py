@@ -110,78 +110,82 @@ def test_trained_agent(env, model):
             return rewards_data, obs_data
         
     
-def create_model(model_name,env):
+def create_model_and_env(model_name):
     if model_name == 'SAC':
+        env = AirSimCarEnv(model_name=m_n)
         model = SAC('MlpPolicy', env, verbose=1)
-        return model
+        return model, env
+    
     elif model_name == 'A2C':
+        env = AirSimCarEnv(model_name=m_n)
         model = A2C("MlpPolicy", env, verbose=1)
-        return model
+        return model, env
+    
     elif model_name == 'DDPG':
+        env = AirSimCarEnv(model_name=m_n)
         action_noise = NormalActionNoise(mean=0, sigma=float(0.001))
         model = DDPG('MlpPolicy',env,verbose=1,learning_starts=100,
                      action_noise=action_noise,batch_size=64,
                      tau=0.001,learning_rate=0.0001)
-        return model
+        return model, env
+    
     elif model_name == 'PPO':
+        env = AirSimCarEnv(model_name=m_n)
         model = PPO('MlpPolicy', env, verbose=1)
-        return model
+        return model, env
+    
     elif model_name == 'DQN':
+        env = AirSimCarEnv(model_name=m_n,contus=False)
         model = DQN("MlpPolicy", env, verbose=1)
-        return model
+        return model, env
     else: 
         return None
     
 
-def evaluate_model(env,model,model_name):
+def evaluate_model(env,model,model_name,epoch):
     obs_data = []
     rewards_data = []
     storage = []
     env.set_test_mode(set_test_mode=True)
     obs = env.reset()
     for i in range(5):
+        obs_data = []
+        rewards_data = []
         while True:
             action, _states = model.predict(obs)
             obs, rewards, dones, info = env.step(action)
             obs_data.append(obs)
+            storage.append(rewards)
             rewards_data.append(rewards)
             if dones:
                 min_rew = min(rewards_data)
                 min_dist = np.log(min_rew + 1/2)*(-3)
-                    
-                f = open(f"{}_validation_data_final.txt", "a")
-                f.write(f'rewards_data: {rewards_data},\n time:{end_time} \n min dist:{min_dist} \n sum of rews:{sum(rewards_data)}')
+                sum_rew = sum(rewards_data)
+                
+                f = open(f"learning_data/{model_name}/validation_data_{epoch}.txt", "a")
+                f.write(f'\'model\': {model_name}\n \n \'rewards_data\': {rewards_data},\n \'min_dist\':{min_dist} \n \'sum_of_rews\':{sum_rew}\n,\'len\':{len(rewards_data)}\n')
                 f.close()
+    mean_reward = sum(storage)/5
+    
+    f = open(f'learning_data/{model_name}/validation_data_mean_{epoch}.txt','a')
+    f.write(f'{mean_reward},')
+    f.close()
+    env.set_test_mode(set_test_mode=False)
+    return mean_reward
     
 
 if __name__ == '__main__':
-    
-    model_names = ['SAC','DDPG','A2C','PPO']
-    n_epochs = 10
-    total_timesteps = 10000
-    for m in model_names:
-        
-        model = create_model(m)
-        for i in n_epochs:
-            env = AirSimCarEnv(model_name=m)
+    model_names = ['SAC','A2C','PPO','DQN']
+    n_epochs = 50
+    total_timesteps = 2000
+    for m_n in model_names:
+        model,env = create_model_and_env(m_n)
+        for epoch in n_epochs:
             model.learn(total_timesteps=total_timesteps,reset_num_timesteps=False)
-            env = AirSimCarEnv(model_name=m,test=True)
-            
+            evaluate_model(env,model,m_n,epoch)
+            env.reset()
+        model.save(f'learning_data/{m_n}/{m_n}_epoch_{epoch}')
         
-    
-    
-    env = AirSimCarEnv(model_name='SAC')
-    
-    start_time = time.time()
-    model = train_SAC(env,total_timesteps=100000)
-    learn_time = time.time()-start_time
-    
-    rewards_data, obs_data = test_trained_agent(env, model)
-    f = open("SAC_rewards_data.txt", "a")
-    f.write(f'rewards_data: {rewards_data} \n time:{learn_time}')
-    f.close()
-    
-    del env
     '''
     env = AirSimCarEnv(model_name='DQN',contus=False)
     start_time = time.time()
