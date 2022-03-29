@@ -143,12 +143,10 @@ def create_model_and_env(model_name):
     
 
 def evaluate_model(env,model,model_name,epoch):
-    obs_data = []
-    rewards_data = []
     storage = []
-    env.set_test_mode(set_test_mode=True)
-    obs = env.reset()
+    env.set_test_mode(True)
     for i in range(5):
+        obs = env.reset()
         obs_data = []
         rewards_data = []
         while True:
@@ -165,28 +163,41 @@ def evaluate_model(env,model,model_name,epoch):
                 f = open(f"learning_data/{model_name}/validation_data_{epoch}.txt", "a")
                 f.write(f'\'model\': {model_name}\n \n \'rewards_data\': {rewards_data},\n \'min_dist\':{min_dist} \n \'sum_of_rews\':{sum_rew}\n,\'len\':{len(rewards_data)}\n')
                 f.close()
+                break
     mean_reward = sum(storage)/5
     
     f = open(f'learning_data/{model_name}/validation_data_mean_{epoch}.txt','a')
     f.write(f'{mean_reward},')
     f.close()
-    env.set_test_mode(set_test_mode=False)
+    env.set_test_mode(False)
     return mean_reward
     
 
 if __name__ == '__main__':
-    model_names = ['SAC','A2C','PPO','DQN']
-    n_epochs = 50
+    model_names = ['A2C']
+    n_epochs = 1
+    total_timesteps = 20
+    for m_n in model_names:
+        model,env = create_model_and_env(m_n)
+        for epoch in range(n_epochs):
+            model.learn(total_timesteps=total_timesteps,reset_num_timesteps=False)
+            #evaluate_model(env,model,m_n,epoch)
+            env.reset()
+            #model.save(f'learning_data/{m_n}/{m_n}_epoch_{epoch}')
+        
+    '''
+    
+    model_names = ['DDPG']
+    n_epochs = 80
     total_timesteps = 2000
     for m_n in model_names:
         model,env = create_model_and_env(m_n)
-        for epoch in n_epochs:
+        for epoch in range(n_epochs):
             model.learn(total_timesteps=total_timesteps,reset_num_timesteps=False)
             evaluate_model(env,model,m_n,epoch)
             env.reset()
-        model.save(f'learning_data/{m_n}/{m_n}_epoch_{epoch}')
-        
-    '''
+            model.save(f'learning_data/{m_n}/{m_n}_epoch_{epoch}')
+    
     env = AirSimCarEnv(model_name='DQN',contus=False)
     start_time = time.time()
     model = train_DQN(env,total_timesteps=100000)
