@@ -1,11 +1,12 @@
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+import pandas as pd
 
 def next_dot(a,b,s):
     a = np.array(a)
     b = np.array(b)
-    dist = random.random()*4+2
+    dist = random.random()*8+4
     max_angle = (1.42 - 0.17*dist)/4
     angle = random.uniform(-max_angle,max_angle)    
     
@@ -22,7 +23,7 @@ if __name__ == '__main__':
     roads_dots=[]
     roads_x=[]
     roads_y=[]
-    j=14
+    j=1 
     while True:
         x=[]
         y=[]
@@ -37,17 +38,17 @@ if __name__ == '__main__':
             x.append(d3[0])
             y.append(d3[1])
         print(s)
-        if np.abs(s-400)<=5:
+        if np.abs(s-800)<=3:
             plt.plot(x,y,'.-')
             plt.show()
-            inp = input('good road? type y/n/end:')        
+            inp = input(f'good road number {j}? type y/n/end:')        
             if inp =='y':
                 roads_dots.append(dots)
                 roads_x.append(x)
                 roads_y.append(y)
-                f = open(f'gen_r/roads_data_{j}.txt','a')
-                f.write(f'\n roads_dots:\n{dots}\n roads_x:\n{x}\n roads_y:\n{y}')
-                f.close()
+                s_i = '{'+f'"roads_x":{x},\n "roads_y":{y}'+'}'
+                d = pd.DataFrame({'x':x,'y':y})
+                d.to_csv(f'gen_r/long_test/roads_data_{j}.csv')
                 j+=1
             elif inp == 'end':
                 break

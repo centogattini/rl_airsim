@@ -40,7 +40,7 @@ class AirSimCarEnv(gym.Env):
         if self.contus:
             self.action_space = spaces.Box(low=-1, high=1,shape=(1,),dtype='float32')
         else:
-            self.action_space = spaces.Discrete(3)
+            self.action_space = spaces.Discrete(5)
         
         #self.image_request = airsim.ImageRequest(
         #    "0", airsim.ImageType.DepthPerspective, True, False
@@ -68,7 +68,7 @@ class AirSimCarEnv(gym.Env):
         self.car.reset()
         self.car.enableApiControl(True)
         self.car.armDisarm(True)
-        time.sleep(0.01)
+        time.sleep(0.02)
 
     def __del__(self):
         self.car.reset()
@@ -87,6 +87,10 @@ class AirSimCarEnv(gym.Env):
                 self.car_controls.steering = 0.5
             elif action == 2:
                 self.car_controls.steering = -0.5
+            elif action == 3:
+                self.car_controls.steering = 0.2
+            elif action == 4:
+                self.car_controls.steering = -0.2
     
         self.car.setCarControls(self.car_controls)
         time.sleep(0.1)
@@ -178,6 +182,7 @@ class AirSimCarEnv(gym.Env):
             self._log_dist(dist)
             if dist >= 6:
                 done = 1
+        #print(dist, done)
         #if self.car_controls.brake == 0:
         #   if self.car_state.speed <= 0:
         #        done = 1
@@ -244,13 +249,21 @@ class AirSimCarEnv(gym.Env):
     def _randomize_road(self,):
         from random import randrange
         from pandas import read_csv
-        n = randrange(4) + 1
+        #n = randrange(4) + 1
         if self.test == False:
-            dots = read_csv(f'roads/road_dots_{n}.csv')
+            m = randrange(6) + 1
+            dots = read_csv(f'roads/gen_r/train/roads_data_{m}.csv')
+            print('Test false')
         else:
-            dots = read_csv('roads/road_dots_test_2.csv')
-        road_arr = list(zip(dots['0'],dots['1']))
+            #n = randrange(6) + 1
+            #dots = read_csv(f'roads/gen_r/test/roads_data_{n}.csv')
+            dots = read_csv(f'roads/gen_r/long_test/roads_data_1.csv')
+            print('Test true')
+        road_arr = list(zip(dots['x'],dots['y']))
         return road_arr
+    
+    def set_test_mode(self,test_mode):
+        self.test=test_mode
     
     def step(self, action):
         #print(action)
@@ -258,8 +271,17 @@ class AirSimCarEnv(gym.Env):
         obs = self._get_obs()
         reward, done = self._compute_reward()
         #print(obs, reward, bool(done), self.state)
+        if self._check_road_end(obs):
+            done = 1
         return obs, reward, bool(done), self.state
-
+    
+    def _check_road_end(self,obs):
+        end = True
+        for i in range(0,len(obs),2):
+            if obs[i] >= 0:
+                end = False
+        return end
+    
     def reset(self):
         self.road_arr = self._randomize_road()
         self._setup_car()
@@ -273,18 +295,25 @@ class AirSimCarEnv(gym.Env):
     
     def _log_route(self,):
         name = self.model_name
-        f = open(f'route_{name}.txt','a')
+        f = open(f'learning_data/route_{name}.txt','a')
         f.write(f'{self._get_car_position()},')
         f.close()
     
     def _log_rew(self,):
         name = self.model_name
-        f = open(f"rewards_{name}.txt", "a")
+        f = open(f"learning_data/rewards_{name}.txt", "a")
         f.write(f'{self.reward},')
         f.close()
         
     def _log_dist(self,dist):
         name = self.model_name
-        f = open(f"dists_{name}.txt", "a")
+        f = open(f"learning_data/dists_{name}.txt", "a")
         f.write(f'{dist},')
         f.close()
+    def record(self, a):
+        if a == True:
+            self.car.startRecording()
+        else:
+            self.car.stopRecording()
+           
+    
